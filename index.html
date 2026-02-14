@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Para Sharon</title>
+    <style>
+        :root {
+            --matrix-green: #00ff41;
+            --heart-pink: #ff2d55;
+            --glow: 0 0 20px rgba(255, 45, 85, 0.8);
+        }
+
+        body {
+            background-color: #000;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            transition: background-color 3s ease;
+        }
+
+        .scanline {
+            width: 100%; height: 100%;
+            z-index: 5000;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 4px, 4px 100%;
+            position: fixed; pointer-events: none;
+        }
+
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 3000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+
+        #ecg-canvas { width: 100%; height: 200px; filter: drop-shadow(0 0 10px var(--heart-pink)); }
+
+        .loading-text {
+            color: var(--heart-pink);
+            font-size: 1.2rem;
+            margin-top: 20px;
+            letter-spacing: 5px;
+            animation: blink 1s infinite;
+        }
+
+        #main-ui { display: flex; padding: 40px; height: 100vh; box-sizing: border-box; opacity: 0; transition: opacity 2s; }
+
+        #lyrics-box { width: 55%; z-index: 10; }
+        #image-box { width: 40%; display: flex; justify-content: center; align-items: center; position: fixed; right: 20px; top: 0; bottom: 0; }
+
+        .line { color: var(--matrix-green); font-size: 1.4rem; margin-bottom: 25px; opacity: 0.3; transition: 0.5s; line-height: 1.6; }
+        .active-line { opacity: 1; color: #fff; text-shadow: 0 0 10px #fff; }
+        .special-line { color: var(--heart-pink) !important; font-size: 1.8rem; text-shadow: var(--glow); border-left: 5px solid var(--heart-pink); padding-left: 15px; }
+
+        .photo-frame {
+            display: none; padding: 8px; border-radius: 15px;
+            background: linear-gradient(45deg, #ff0000, #ff00f2, #0011ff, #00ffea);
+            background-size: 400%; animation: gradientMove 5s infinite;
+        }
+
+        @keyframes gradientMove { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+
+        #final-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: none; justify-content: center; align-items: center;
+            z-index: 2000; opacity: 0; transition: opacity 3s;
+        }
+
+        .final-text { z-index: 2100; text-align: center; }
+        .final-text h1 { color: #fff; font-size: 4rem; text-shadow: var(--glow); margin: 0; }
+        .final-text p { color: var(--heart-pink); font-size: 1.6rem; margin-top: 15px; }
+
+        #start-btn {
+            padding: 15px 40px; background: transparent; border: 2px solid var(--matrix-green);
+            color: var(--matrix-green); cursor: pointer; font-size: 1.3rem; z-index: 4000;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+        .cursor::after { content: '█'; animation: blink 0.8s infinite; margin-left: 5px; color: var(--heart-pink); }
+
+        #matrix-canvas { position: fixed; top: 0; left: 0; z-index: -1; transition: opacity 3s ease; }
+    </style>
+</head>
+<body>
+
+<div class="scanline"></div>
+
+<div id="overlay" style="position:fixed; width:100%; height:100%; background:#000; z-index:6000; display:flex; justify-content:center; align-items:center;">
+    <button id="start-btn" onclick="startExperience()">[ INICIAR SISTEMA ]</button>
+</div>
+
+<div id="loading-screen" style="display:none;">
+    <canvas id="ecg-canvas"></canvas>
+    <div class="loading-text" id="status-text">ANALIZANDO PULSO...</div>
+</div>
+
+<div id="final-screen">
+    <div class="final-text">
+        <h1 id="sharon-name">Sharon</h1>
+        <p>Feliz 2 meses de relación atrasados</p>
+    </div>
+</div>
+
+<canvas id="matrix-canvas"></canvas>
+
+<main id="main-ui">
+    <div id="lyrics-box"></div>
+    <div id="image-box">
+        <div class="photo-frame" id="frame">
+            <img src="image/ilove.jpg" id="sharon-img" style="max-width:400px; width:100%; border-radius:10px; display:block;">
+        </div>
+    </div>
+</main>
+
+<audio id="bgm" src="Music/song.mp3"></audio>
+
+<script>
+const mCanvas = document.getElementById('matrix-canvas');
+const mCtx = mCanvas.getContext('2d');
+const eCanvas = document.getElementById('ecg-canvas');
+const eCtx = eCanvas.getContext('2d');
+
+let w, h, columns, drops = [];
+let mode = 'loading'; 
+let heartBeat = 0;
+let ecgX = 0;
+let isWriting = false;
+
+function initCanvases() {
+    w = window.innerWidth; h = window.innerHeight;
+    mCanvas.width = w; mCanvas.height = h;
+    eCanvas.width = w; eCanvas.height = 200;
+    columns = Math.floor(w / 12); 
+    drops = Array(columns).fill(0).map(() => Math.random() * -100);
+}
+
+function checkHeart(x, y) {
+    const scale = Math.min(w, h) / 45;
+    const b = Math.sin(heartBeat) * 2.5;
+    const nx = (x - w / 2) / (scale + b);
+    const ny = (h / 2.3 - y) / (scale + b);
+    return Math.pow(nx*nx + ny*ny - 10, 3) - nx*nx*ny*ny*ny < 0;
+}
+
+function drawMatrix() {
+    mCtx.fillStyle = "rgba(0, 0, 0, 0.15)";
+    mCtx.fillRect(0, 0, w, h);
+    
+    mCtx.font = "14px monospace";
+    for (let i = 0; i < drops.length; i++) {
+        const text = "01LOVE"[Math.floor(Math.random()*6)];
+        const x = i * 12; const y = drops[i] * 12;
+        if (checkHeart(x, y)) {
+            mCtx.fillStyle = "#ff2d55";
+            mCtx.shadowBlur = 12;
+        } else {
+            mCtx.fillStyle = (mode === 'loading') ? "rgba(0,0,0,0)" : "#00ff41";
+            mCtx.shadowBlur = 0;
+        }
+        mCtx.fillText(text, x, y);
+        if (y > h && Math.random() > 0.95) drops[i] = 0;
+        drops[i] += 1.8;
+    }
+}
+
+function drawECG() {
+    if (mode !== 'loading') return;
+    eCtx.strokeStyle = "#ff2d55"; eCtx.lineWidth = 3;
+    eCtx.beginPath(); eCtx.moveTo(ecgX, 100);
+    let y = 100;
+    if (ecgX % 120 < 15) y = 100 - (Math.random() * 90);
+    eCtx.lineTo(ecgX + 6, y); eCtx.stroke();
+    ecgX += 6;
+    if (ecgX > w) { ecgX = 0; eCtx.clearRect(0, 0, w, 200); }
+}
+
+const audio = document.getElementById('bgm');
+const lyricsData = [
+    { time: 0.6, text: "My chest is hurting," },
+    { time: 3.2, text: " my feet can't fall out of bed", append: true },
+    { time: 6.0, text: "I don't know where to go, so I'll lay here instead" },
+    { time: 10.2, text: "With my symptoms, symptoms of sorrow and dread" },
+    { time: 15.3, text: "They all said it would fade, but again and again" },
+    { time: 20.8, phrases: [{ t: "I love, I love", s: 300 }], special: true, showImg: true },
+    { time: 24.5, phrases: [{ t: "I love, I love, ", s: 300 }, { t: "I love", s: 100 }], special: true },
+    { time: 28.9, phrases: [{ t: "I love, I love, ", s: 300 }, { t: "I love", s: 100 }], special: true, isLast: true }
+];
+
+let currentIndex = 0;
+
+function startExperience() {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('loading-screen').style.display = 'flex';
+    initCanvases();
+    setTimeout(() => {
+        document.getElementById('status-text').innerText = "CONEXIÓN ESTABLECIDA";
+        document.getElementById('status-text').style.color = "#00ff41";
+        setTimeout(() => {
+            document.getElementById('loading-screen').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('main-ui').style.opacity = '1';
+                mode = 'play';
+                audio.play();
+                audio.addEventListener('timeupdate', checkSync);
+            }, 1000);
+        }, 1000);
+    }, 3800);
+}
+
+function checkSync() {
+    if (isWriting) return;
+    const now = audio.currentTime;
+    if (currentIndex < lyricsData.length && now >= lyricsData[currentIndex].time) {
+        const data = lyricsData[currentIndex];
+        currentIndex++;
+        isWriting = true;
+        renderLine(data);
+    }
+}
+
+async function renderLine(data) {
+    const box = document.getElementById('lyrics-box');
+    if (data.showImg) {
+        const f = document.getElementById('frame'); f.style.display = 'block';
+        setTimeout(() => f.style.opacity = 1, 100);
+    }
+    let el;
+    if (data.append && box.lastElementChild) { el = box.lastElementChild; } 
+    else {
+        if(box.lastElementChild) box.lastElementChild.classList.remove('cursor');
+        el = document.createElement('div');
+        el.className = 'line active-line' + (data.special ? ' special-line' : '');
+        el.classList.add('cursor');
+        box.appendChild(el);
+    }
+    if (data.phrases) {
+        for (const p of data.phrases) {
+            for (let char of p.t) {
+                el.textContent += char;
+                await new Promise(r => setTimeout(r, p.s));
+            }
+        }
+    } else {
+        for (let char of data.text) {
+            el.textContent += char;
+            await new Promise(r => setTimeout(r, 45));
+        }
+    }
+    isWriting = false;
+    if (data.isLast) setTimeout(triggerFinal, 3500);
+}
+
+function triggerFinal() {
+    document.getElementById('main-ui').style.opacity = '0';
+    setTimeout(() => {
+        document.getElementById('main-ui').style.display = 'none';
+        mode = 'final';
+        const fs = document.getElementById('final-screen');
+        fs.style.display = 'flex';
+        setTimeout(() => { 
+            fs.style.opacity = '1'; 
+            glitchName("sharon-name", "Sharon"); 
+            
+            // LA ESPERA DE 6 SEGUNDOS HACIA EL NEGRO TOTAL
+            setTimeout(() => {
+                fs.style.opacity = '0';
+                mCanvas.style.opacity = '0';
+                document.body.style.backgroundColor = '#000';
+            }, 6000);
+
+        }, 500);
+    }, 2000);
+}
+
+function glitchName(id, name) {
+    const el = document.getElementById(id);
+    let i = 0;
+    const interval = setInterval(() => {
+        el.innerText = name.split('').map((c, j) => j < i ? name[j] : "X#?".charAt(Math.floor(Math.random()*3))).join('');
+        if (i >= name.length) clearInterval(interval);
+        i += 0.15;
+    }, 60);
+}
+
+function animate() {
+    drawMatrix();
+    drawECG();
+    heartBeat += 0.08;
+    requestAnimationFrame(animate);
+}
+animate();
+window.onresize = initCanvases;
+</script>
+</body>
+</html>
